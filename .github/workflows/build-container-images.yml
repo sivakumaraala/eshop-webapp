@@ -1,0 +1,112 @@
+name: Build Container Images
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_NOLOGO: true
+  TRIVY_SCAN_SERVICES: basket-api,catalog-api,webapp
+  TRIVY_SEVERITY: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.service.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: basket-api
+            context: .
+            dockerfile: src/Basket.API/Dockerfile
+          - name: catalog-api
+            context: .
+            dockerfile: src/Catalog.API/Dockerfile
+          - name: identity-api
+            context: .
+            dockerfile: src/Identity.API/Dockerfile
+          - name: ordering-api
+            context: .
+            dockerfile: src/Ordering.API/Dockerfile
+          - name: payment-processor
+            context: .
+            dockerfile: src/PaymentProcessor/Dockerfile
+          - name: order-processor
+            context: .
+            dockerfile: src/OrderProcessor/Dockerfile
+          - name: webapp
+            context: .
+            dockerfile: src/WebApp/Dockerfile
+          - name: webhooks-api
+            context: .
+            dockerfile: src/Webhooks.API/Dockerfile
+          - name: webhook-client
+            context: .
+            dockerfile: src/WebhookClient/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Trivy report dir
+        shell: bash
+        run: echo "TRIVY_REPORT_DIR=$RUNNER_TEMP/trivy-reports" >> "$GITHUB_ENV"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build image
+        run: |
+          docker build \
+            -f "${{ matrix.service.dockerfile }}" \
+            -t "test-microservice/${{ matrix.service.name }}:${{ github.sha }}" \
+            "${{ matrix.service.context }}"
+
+      - name: Prepare Trivy report path
+        if: ${{ contains(env.TRIVY_SCAN_SERVICES, matrix.service.name) }}
+        shell: bash
+        run: mkdir -p "${TRIVY_REPORT_DIR}"
+
+      - name: Run Trivy image scan
+        if: ${{ contains(env.TRIVY_SCAN_SERVICES, matrix.service.name) }}
+        shell: bash
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${TRIVY_REPORT_DIR}:/reports" \
+            aquasec/trivy:0.70.0 \
+            image \
+            --no-progress \
+            --format table \
+            --severity "${TRIVY_SEVERITY}" \
+            --exit-code 0 \
+            --output "/reports/trivy-${{ matrix.service.name }}.txt" \
+            "test-microservice/${{ matrix.service.name }}:${{ github.sha }}"
+
+      - name: Upload Trivy report
+        if: ${{ contains(env.TRIVY_SCAN_SERVICES, matrix.service.name) && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-${{ matrix.service.name }}
+          path: ${{ env.TRIVY_REPORT_DIR }}/trivy-${{ matrix.service.name }}.txt
+
+      - name: Save image artifact metadata
+        run: |
+          mkdir -p artifacts
+          echo "${{ matrix.service.name }}=${{ github.sha }}" >> artifacts/images.txt
+
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-metadata-${{ matrix.service.name }}
+          path: artifacts/images.txt
