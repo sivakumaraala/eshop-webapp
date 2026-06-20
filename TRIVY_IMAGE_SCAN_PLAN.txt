@@ -1,0 +1,66 @@
+﻿Trivy Image Scan Plan for test-microservice-app
+=============================================
+
+Goal
+----
+Add a Trivy image vulnerability scan to the application repo CI so every container image built for the app is checked before it is promoted to dev.
+
+Recommended workflow placement
+------------------------------
+Add the scan to `.github/workflows/build-container-images.yml` because that workflow already builds every service image in the matrix.
+
+Suggested flow
+--------------
+1. Checkout code.
+2. Build the selected service image with Docker.
+3. Run Trivy against the just-built local image tag.
+4. Fail the job on MEDIUM, HIGH, and CRITICAL vulnerabilities.
+5. Upload the scan output as a workflow artifact (optional, but recommended).
+6. Keep the existing build metadata upload step.
+
+Best-practice implementation details
+------------------------------------
+- Start with the important services you actually want to protect and keep the scope small at first.
+- For this POC, scan only:
+  - `webapp`
+  - `basket-api`
+  - `catalog-api`
+- Scan the local image tag created in the same job so you do not need to push to a registry first.
+- Use severity gates like `MEDIUM,HIGH,CRITICAL` if you want to catch the next level too.
+- Use `ignore-unfixed: true` only if you intentionally want to suppress vulnerabilities without fixes.
+- Add a `.trivyignore` file only for reviewed, time-bound exceptions.
+- Cache the Trivy database between runs to reduce CI time.
+- Keep the scan step after `docker build` so the image is guaranteed to exist.
+- Make the scan visible in PRs by failing the workflow when risk is above your threshold.
+- Store the report as an artifact so the team can inspect it later.
+
+Good first version for this repo
+--------------------------------
+- Keep the current PR validation workflow for .NET build and unit tests.
+- Add Trivy to `build-container-images.yml`.
+- Apply the scan only to:
+  - `webapp`
+  - `basket-api`
+  - `catalog-api`
+
+Recommended policy for a POC
+----------------------------
+- Build and unit tests: always required.
+- Trivy image scan: required for the selected services, starting with `MEDIUM,HIGH,CRITICAL`.
+- If the repo is noisy at first, allow a temporary baseline and tighten it later.
+- Keep the scan automated so PRs cannot merge with new medium/high/critical findings.
+
+Validation checklist
+--------------------
+- `dotnet build` passes in PR validation.
+- Unit tests pass in PR validation.
+- Docker image builds pass for `webapp`, `basket-api`, and `catalog-api`.
+- Trivy scan runs on each selected built image.
+- The workflow fails only for the severity threshold you choose.
+- The scan report is available as an artifact.
+- Main branch merges only after checks pass.
+
+Notes
+-----
+- This plan assumes the application repo is the right place for image scanning, not the GitOps repo.
+- If you later push images to ACR, you can also scan the pushed image tag in addition to the local build.

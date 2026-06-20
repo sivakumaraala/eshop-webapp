@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/TestResults/
+.git/
+.github/
+.aspire/
+artifacts/
+build/
+docs/
+e2e/
+img/
+infra/
+tests/
+node_modules/
+.vs/
+*.user
+*.suo
